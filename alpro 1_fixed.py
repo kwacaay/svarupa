@@ -166,47 +166,77 @@ input:focus { border-color: var(--gold) !important; box-shadow: none !important;
 )
 
 # ─────────────────────────────────────────────
-#  PRODUCT IMAGE MAP
-#  Menggunakan Unsplash source API (gratis, no key)
-#  Format: https://source.unsplash.com/featured/?{keyword}&sig={unique_id}
+#  PRODUCT IMAGE — file asli dari folder image/
+#  Pastikan folder 'image' ini ada di repo GitHub yang sama
+#  dengan file .py ini (sejajar, bukan di subfolder lain).
 # ─────────────────────────────────────────────
 
-# Mapping kategori → gradient warna + emoji fallback
 CATEGORY_STYLE = {
-    "Atasan":    {"gradient": "linear-gradient(135deg,#2a2a2a 0%,#1a1a1a 100%)", "emoji": "👕"},
-    "Bawahan":   {"gradient": "linear-gradient(135deg,#1e1e2e 0%,#12121f 100%)", "emoji": "👖"},
-    "Dress":     {"gradient": "linear-gradient(135deg,#2e1e2a 0%,#1f1215 100%)", "emoji": "👗"},
-    "Outerwear": {"gradient": "linear-gradient(135deg,#1c1c1c 0%,#2c2216 100%)", "emoji": "🧥"},
-    "Sepatu":    {"gradient": "linear-gradient(135deg,#1a1a14 0%,#2a2810 100%)", "emoji": "👟"},
-    "Tas":       {"gradient": "linear-gradient(135deg,#2a1a14 0%,#1a0e0a 100%)", "emoji": "👜"},
+    "Atasan":    {"c1": "#2a2a2a", "c2": "#1a1a1a", "emoji": "👕"},
+    "Bawahan":   {"c1": "#1e1e2e", "c2": "#12121f", "emoji": "👖"},
+    "Dress":     {"c1": "#2e1e2a", "c2": "#1f1215", "emoji": "👗"},
+    "Outerwear": {"c1": "#2c2216", "c2": "#1c1c1c", "emoji": "🧥"},
+    "Sepatu":    {"c1": "#2a2810", "c2": "#1a1a14", "emoji": "👟"},
+    "Tas":       {"c1": "#2a1a14", "c2": "#1a0e0a", "emoji": "👜"},
 }
 
-# Unsplash keyword per produk untuk gambar yang relevan
-PRODUCT_IMG_KEYWORDS = {
-    1:  "linen blazer fashion",
-    2:  "cargo pants streetwear",
-    3:  "knit sweater fashion",
-    4:  "maxi skirt fashion",
-    5:  "chino pants men",
-    6:  "turtleneck fashion",
-    7:  "straight jeans denim",
-    8:  "mini dress fashion",
-    9:  "longline coat fashion",
-    10: "satin slip dress",
-    11: "utility vest fashion",
-    12: "oxford shoes leather",
-    13: "leather crossbody bag",
-    14: "white tshirt fashion",
-    15: "wide trousers fashion",
-    16: "structured blazer fashion",
+# id produk → path file gambar asli (relatif terhadap lokasi file .py)
+PRODUCT_IMAGE_PATH = {
+    1:  "image/linen blazer.jpeg",
+    2:  "image/cargo pants.jpeg",
+    3:  "image/knit sweater.jpeg",
+    4:  "image/flowy maxi .jpeg",
+    5:  "image/chinos.jpeg",
+    6:  "image/turtleneck.jpeg",
+    7:  "image/straight jeans.jpeg",
+    8:  "image/a line dress.jpeg",
+    9:  "image/coat.jpeg",
+    10: "image/satin dress.jpeg",
+    11: "image/vest.jpeg",
+    12: "image/shoes.jpeg",
+    13: "image/leather bag.jpeg",
+    14: "image/white tee.jpeg",
+    15: "image/trousers.jpeg",
+    16: "image/blazer.jpeg",
 }
 
+import os
+import base64
 
-def get_img_url(product_id: int) -> str:
-    """Return an Unsplash URL for the product."""
-    keyword = PRODUCT_IMG_KEYWORDS.get(product_id, "fashion clothing")
-    # sig= membuat setiap produk punya gambar unik yang konsisten
-    return f"https://source.unsplash.com/400x530/?{keyword.replace(' ', ',')}&sig={product_id}"
+
+def make_placeholder_svg(category: str, label: str) -> str:
+    """Fallback SVG jika file gambar tidak ditemukan. Tidak butuh internet."""
+    style = CATEGORY_STYLE.get(category, CATEGORY_STYLE["Atasan"])
+    c1, c2 = style["c1"], style["c2"]
+    short = (label or category).upper()[:18]
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="400" height="530" viewBox="0 0 400 530">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="{c1}"/>
+      <stop offset="100%" stop-color="{c2}"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="530" fill="url(#g)"/>
+  <rect x="30" y="30" width="340" height="470" fill="none" stroke="#7A6030" stroke-opacity="0.35" stroke-width="1"/>
+  <text x="200" y="250" font-size="64" text-anchor="middle" dominant-baseline="middle">{style['emoji']}</text>
+  <text x="200" y="320" font-family="Inter, sans-serif" font-size="13" letter-spacing="3"
+        fill="#7A6030" text-anchor="middle" dominant-baseline="middle">{short}</text>
+</svg>"""
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("utf-8")
+    return f"data:image/svg+xml;base64,{b64}"
+
+
+def get_img_url(product) -> str:
+    """
+    Return path gambar asli jika filenya ada di disk.
+    Kalau tidak ketemu (misal lupa upload / typo nama file),
+    otomatis jatuh ke placeholder SVG supaya app tidak error.
+    """
+    pid = product["id"]
+    path = PRODUCT_IMAGE_PATH.get(pid)
+    if path and os.path.exists(path):
+        return path
+    return make_placeholder_svg(product.get("category", "Atasan"), product.get("name", ""))
 
 
 # ─────────────────────────────────────────────
@@ -366,37 +396,9 @@ def gold_divider():
 
 
 def render_product_image(product):
-    """
-    Render gambar produk menggunakan Unsplash.
-    Jika Unsplash tidak tersedia, tampilkan placeholder elegan dengan emoji + gradient.
-    """
-    pid = product["id"]
-    cat = product.get("category", "Atasan")
-    style = CATEGORY_STYLE.get(cat, CATEGORY_STYLE["Atasan"])
-    emoji = style["emoji"]
-    img_url = get_img_url(pid)
-
-    st.markdown(
-        f"""
-        <div style="width:100%;aspect-ratio:3/4;overflow:hidden;background:{style['gradient']};
-            display:flex;align-items:center;justify-content:center;position:relative;">
-            <img src="{img_url}"
-                 style="width:100%;height:100%;object-fit:cover;display:block;"
-                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
-            />
-            <div style="display:none;position:absolute;inset:0;align-items:center;
-                justify-content:center;font-size:3rem;flex-direction:column;gap:0.5rem;
-                background:{style['gradient']};">
-                <span>{emoji}</span>
-                <span style="color:#7A6030;font-size:0.65rem;letter-spacing:0.1em;
-                    text-transform:uppercase;font-family:Inter,sans-serif;">
-                    {cat}
-                </span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """Render gambar produk via SVG placeholder data-URI — selalu muncul, tanpa internet."""
+    img_url = get_img_url(product)
+    st.image(img_url, use_container_width=True)
 
 
 def product_card(product, key_prefix="p"):
@@ -706,18 +708,10 @@ def page_cart():
         p = get_product(pid)
         if not p:
             continue
-        cat = p.get("category", "Atasan")
-        style = CATEGORY_STYLE.get(cat, CATEGORY_STYLE["Atasan"])
-        emoji = style["emoji"]
-
         with st.container():
             c_thumb, c_info, c_qty, c_sub = st.columns([1, 3, 2, 2])
             with c_thumb:
-                st.markdown(
-                    f'<div style="background:{style["gradient"]};text-align:center;'
-                    f'padding:0.8rem 0.3rem;font-size:1.8rem;aspect-ratio:1;">{emoji}</div>',
-                    unsafe_allow_html=True,
-                )
+                st.image(get_img_url(p), use_container_width=True)
             with c_info:
                 st.markdown(
                     f'<p style="font-weight:600;color:#F0EDE6;margin:0;font-size:0.85rem">{p["name"]}</p>'
