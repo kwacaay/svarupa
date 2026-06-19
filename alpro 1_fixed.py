@@ -5,16 +5,35 @@ from datetime import datetime
 
 # ─────────────────────────────────────────────
 #  DATABASE SETUP
+#  Catatan: koneksi dibuka/ditutup per operasi (bukan disimpan global)
+#  supaya tidak konflik lock dengan DB Browser for SQLite yang dibuka
+#  bersamaan, dan supaya tidak ada banyak koneksi menumpuk akibat
+#  Streamlit yang rerun script dari atas setiap interaksi.
 # ─────────────────────────────────────────────
-conn = sqlite3.connect("svarupa.db", check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        email TEXT PRIMARY KEY,
-        password TEXT NOT NULL
-    )
-""")
-conn.commit()
+
+DB_PATH = "svarupa.db"
+
+
+def get_conn():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")  # kurangi risiko 'database is locked'
+    return conn
+
+
+def init_db():
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            password TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
 
 # ─────────────────────────────────────────────
 #  PAGE CONFIG
@@ -194,10 +213,10 @@ PRODUCT_IMAGE_PATH = {
     10: "image/satin dress.jpeg",
     11: "image/vest.jpeg",
     12: "image/shoes.jpeg",
-    13: "image/blazer.jpeg",
-    14: "image/leather bag.jpeg",
-    15: "image/white tee.jpeg",
-    16: "image/trousers.jpeg",
+    13: "image/leather bag.jpeg",
+    14: "image/white tee.jpeg",
+    15: "image/trousers.jpeg",
+    16: "image/blazer.jpeg",
 }
 
 import os
@@ -268,17 +287,31 @@ PAYMENT_METHODS = ["Transfer Bank", "E-Wallet", "COD", "Virtual Account"]
 # ─────────────────────────────────────────────
 
 def register_user(email, password):
+    """Return (success: bool, error_message: str|None)."""
     try:
+        conn = get_conn()
+        cursor = conn.cursor()
         cursor.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, password))
         conn.commit()
-        return True
-    except Exception:
-        return False
+        conn.close()
+        return True, None
+    except sqlite3.IntegrityError:
+        return False, "Email sudah terdaftar."
+    except sqlite3.OperationalError as e:
+        # Contoh: 'database is locked' kalau DB Browser for SQLite
+        # sedang membuka file svarupa.db secara bersamaan.
+        return False, f"Database sedang terkunci ({e}). Tutup DB Browser/SQLite viewer lalu coba lagi."
+    except Exception as e:
+        return False, f"Gagal mendaftar: {e}"
 
 
 def login_user(email, password):
+    conn = get_conn()
+    cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE email=? AND password=?", (email, password))
-    return cursor.fetchone()
+    user = cursor.fetchone()
+    conn.close()
+    return user
 
 
 def init_state():
@@ -336,11 +369,11 @@ def page_login():
         reg_password = st.text_input("Password Baru", type="password", key="reg_pass")
         if st.button("Daftar", key="btn_register", use_container_width=True):
             if reg_email and reg_password:
-                ok = register_user(reg_email, reg_password)
+                ok, err = register_user(reg_email, reg_password)
                 if ok:
                     st.success("Akun berhasil dibuat! Silakan login.")
                 else:
-                    st.error("Email sudah terdaftar.")
+                    st.error(err)
             else:
                 st.warning("Isi email dan password terlebih dahulu.")
 
