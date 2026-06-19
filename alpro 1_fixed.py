@@ -1,39 +1,27 @@
 import streamlit as st
-import sqlite3
 import random
+import hashlib
 from datetime import datetime
+from supabase import create_client, Client
 
 # ─────────────────────────────────────────────
-#  DATABASE SETUP
-#  Catatan: koneksi dibuka/ditutup per operasi (bukan disimpan global)
-#  supaya tidak konflik lock dengan DB Browser for SQLite yang dibuka
-#  bersamaan, dan supaya tidak ada banyak koneksi menumpuk akibat
-#  Streamlit yang rerun script dari atas setiap interaksi.
+#  SUPABASE SETUP
 # ─────────────────────────────────────────────
 
-DB_PATH = "svarupa.db"
+@st.cache_resource
+def get_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
+supabase = get_supabase()
 
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL")  # kurangi risiko 'database is locked'
-    return conn
+# ─────────────────────────────────────────────
+#  PASSWORD HASHING
+# ─────────────────────────────────────────────
 
-
-def init_db():
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            email TEXT PRIMARY KEY,
-            password TEXT NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-init_db()
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
 # ─────────────────────────────────────────────
 #  PAGE CONFIG
@@ -145,7 +133,6 @@ input:focus { border-color: var(--gold) !important; box-shadow: none !important;
     margin-top: 0.5rem;
 }
 
-/* Product image placeholder */
 .product-img-wrap {
     width: 100%;
     aspect-ratio: 3/4;
@@ -185,9 +172,7 @@ input:focus { border-color: var(--gold) !important; box-shadow: none !important;
 )
 
 # ─────────────────────────────────────────────
-#  PRODUCT IMAGE — file asli dari folder image/
-#  Pastikan folder 'image' ini ada di repo GitHub yang sama
-#  dengan file .py ini (sejajar, bukan di subfolder lain).
+#  PRODUCT IMAGE
 # ─────────────────────────────────────────────
 
 CATEGORY_STYLE = {
@@ -199,7 +184,6 @@ CATEGORY_STYLE = {
     "Tas":       {"c1": "#2a1a14", "c2": "#1a0e0a", "emoji": "👜"},
 }
 
-# id produk → path file gambar asli (relatif terhadap lokasi file .py)
 PRODUCT_IMAGE_PATH = {
     1:  "image/linen blazer.jpeg",
     2:  "image/cargo pants.jpeg",
@@ -213,10 +197,10 @@ PRODUCT_IMAGE_PATH = {
     10: "image/satin dress.jpeg",
     11: "image/vest.jpeg",
     12: "image/shoes.jpeg",
-    13: "image/blazer.jpeg",
-    14: "image/leather bag.jpeg",
-    15: "image/white tee.jpeg",
-    16: "image/trousers.jpeg",
+    13: "image/leather bag.jpeg",
+    14: "image/white tee.jpeg",
+    15: "image/trousers.jpeg",
+    16: "image/blazer.jpeg",
 }
 
 import os
@@ -224,7 +208,6 @@ import base64
 
 
 def make_placeholder_svg(category: str, label: str) -> str:
-    """Fallback SVG jika file gambar tidak ditemukan. Tidak butuh internet."""
     style = CATEGORY_STYLE.get(category, CATEGORY_STYLE["Atasan"])
     c1, c2 = style["c1"], style["c2"]
     short = (label or category).upper()[:18]
@@ -246,11 +229,6 @@ def make_placeholder_svg(category: str, label: str) -> str:
 
 
 def get_img_url(product) -> str:
-    """
-    Return path gambar asli jika filenya ada di disk.
-    Kalau tidak ketemu (misal lupa upload / typo nama file),
-    otomatis jatuh ke placeholder SVG supaya app tidak error.
-    """
     pid = product["id"]
     path = PRODUCT_IMAGE_PATH.get(pid)
     if path and os.path.exists(path):
@@ -283,36 +261,36 @@ PRODUCTS = [
 PAYMENT_METHODS = ["Transfer Bank", "E-Wallet", "COD", "Virtual Account"]
 
 # ─────────────────────────────────────────────
-#  SESSION STATE INIT
+#  AUTH FUNCTIONS (Supabase)
 # ─────────────────────────────────────────────
 
-def register_user(email, password):
+def register_user(email: str, password: str):
     """Return (success: bool, error_message: str|None)."""
     try:
-        conn = get_conn()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, password))
-        conn.commit()
-        conn.close()
+        hashed = hash_password(password)
+        supabase.table("users").insert({"email": email, "password": hashed}).execute()
         return True, None
-    except sqlite3.IntegrityError:
-        return False, "Email sudah terdaftar."
-    except sqlite3.OperationalError as e:
-        # Contoh: 'database is locked' kalau DB Browser for SQLite
-        # sedang membuka file svarupa.db secara bersamaan.
-        return False, f"Database sedang terkunci ({e}). Tutup DB Browser/SQLite viewer lalu coba lagi."
     except Exception as e:
-        return False, f"Gagal mendaftar: {e}"
+        err = str(e)
+        if "duplicate" in err.lower() or "unique" in err.lower():
+            return False, "Email sudah terdaftar."
+        return False, f"Gagal mendaftar: {err}"
 
 
-def login_user(email, password):
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE email=? AND password=?", (email, password))
-    user = cursor.fetchone()
-    conn.close()
-    return user
+def login_user(email: str, password: str):
+    """Return user row dict atau None."""
+    try:
+        hashed = hash_password(password)
+        res = supabase.table("users").select("*").eq("email", email).eq("password", hashed).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        st.error(f"Error login: {e}")
+        return None
 
+
+# ─────────────────────────────────────────────
+#  SESSION STATE INIT
+# ─────────────────────────────────────────────
 
 def init_state():
     defaults = {
@@ -429,7 +407,6 @@ def gold_divider():
 
 
 def render_product_image(product):
-    """Render gambar produk via SVG placeholder data-URI — selalu muncul, tanpa internet."""
     img_url = get_img_url(product)
     st.image(img_url, use_container_width=True)
 
@@ -438,10 +415,8 @@ def product_card(product, key_prefix="p"):
     pid = product["id"]
     in_wish = pid in st.session_state.wishlist
 
-    # Gambar produk
     render_product_image(product)
 
-    # Info produk
     stars = "★" * int(product["rating"]) + "☆" * (5 - int(product["rating"]))
     st.markdown(
         f"""
