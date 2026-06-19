@@ -197,10 +197,10 @@ PRODUCT_IMAGE_PATH = {
     10: "image/satin dress.jpeg",
     11: "image/vest.jpeg",
     12: "image/shoes.jpeg",
-    13: "image/leather bag.jpeg",
-    14: "image/white tee.jpeg",
-    15: "image/trousers.jpeg",
-    16: "image/blazer.jpeg",
+    13: "image/blazer.jpeg",
+    14: "image/leather bag.jpeg",
+    15: "image/white tee.jpeg",
+    16: "image/trousers.jpeg",
 }
 
 import os
